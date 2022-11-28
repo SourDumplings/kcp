@@ -25,29 +25,34 @@
 /* get system time */
 static inline void itimeofday(long *sec, long *usec)
 {
-	#if defined(__unix)
+#if defined(__unix)
 	struct timeval time;
 	gettimeofday(&time, NULL);
-	if (sec) *sec = time.tv_sec;
-	if (usec) *usec = time.tv_usec;
-	#else
+	if (sec)
+		*sec = time.tv_sec;
+	if (usec)
+		*usec = time.tv_usec;
+#else
 	static long mode = 0, addsec = 0;
 	BOOL retval;
 	static IINT64 freq = 1;
 	IINT64 qpc;
-	if (mode == 0) {
-		retval = QueryPerformanceFrequency((LARGE_INTEGER*)&freq);
-		freq = (freq == 0)? 1 : freq;
-		retval = QueryPerformanceCounter((LARGE_INTEGER*)&qpc);
+	if (mode == 0)
+	{
+		retval = QueryPerformanceFrequency((LARGE_INTEGER *)&freq);
+		freq = (freq == 0) ? 1 : freq;
+		retval = QueryPerformanceCounter((LARGE_INTEGER *)&qpc);
 		addsec = (long)time(NULL);
 		addsec = addsec - (long)((qpc / freq) & 0x7fffffff);
 		mode = 1;
 	}
-	retval = QueryPerformanceCounter((LARGE_INTEGER*)&qpc);
+	retval = QueryPerformanceCounter((LARGE_INTEGER *)&qpc);
 	retval = retval * 2;
-	if (sec) *sec = (long)(qpc / freq) + addsec;
-	if (usec) *usec = (long)((qpc % freq) * 1000000 / freq);
-	#endif
+	if (sec)
+		*sec = (long)(qpc / freq) + addsec;
+	if (usec)
+		*usec = (long)((qpc % freq) * 1000000 / freq);
+#endif
 }
 
 /* get clock in millisecond 64 */
@@ -68,15 +73,15 @@ static inline IUINT32 iclock()
 /* sleep in millisecond */
 static inline void isleep(unsigned long millisecond)
 {
-	#ifdef __unix 	/* usleep( time * 1000 ); */
+#ifdef __unix /* usleep( time * 1000 ); */
 	struct timespec ts;
 	ts.tv_sec = (time_t)(millisecond / 1000);
 	ts.tv_nsec = (long)((millisecond % 1000) * 1000000);
 	/*nanosleep(&ts, NULL);*/
 	usleep((millisecond << 10) - (millisecond << 4) - (millisecond << 3));
-	#elif defined(_WIN32)
+#elif defined(_WIN32)
 	Sleep(millisecond);
-	#endif
+#endif
 }
 
 #ifdef __cplusplus
@@ -87,21 +92,25 @@ static inline void isleep(unsigned long millisecond)
 class DelayPacket
 {
 public:
-	virtual ~DelayPacket() {
-		if (_ptr) delete[] _ptr;
+	virtual ~DelayPacket()
+	{
+		if (_ptr)
+			delete[] _ptr;
 		_ptr = NULL;
 	}
 
-	DelayPacket(int size, const void *src = NULL) {
+	DelayPacket(int size, const void *src = NULL)
+	{
 		_ptr = new unsigned char[size];
 		_size = size;
-		if (src) {
+		if (src)
+		{
 			memcpy(_ptr, src, size);
 		}
 	}
 
-	unsigned char* ptr() { return _ptr; }
-	const unsigned char* ptr() const { return _ptr; }
+	unsigned char *ptr() { return _ptr; }
+	const unsigned char *ptr() const { return _ptr; }
 
 	int size() const { return _size; }
 	IUINT32 ts() const { return _ts; }
@@ -117,16 +126,21 @@ protected:
 class Random
 {
 public:
-	Random(int size) {
+	Random(int size)
+	{
 		this->size = 0;
 		seeds.resize(size);
 	}
 
-	int random() {
+	int random()
+	{
 		int x, i;
-		if (seeds.size() == 0) return 0;
-		if (size == 0) { 
-			for (i = 0; i < (int)seeds.size(); i++) {
+		if (seeds.size() == 0)
+			return 0;
+		if (size == 0)
+		{
+			for (i = 0; i < (int)seeds.size(); i++)
+			{
 				seeds[i] = i;
 			}
 			size = (int)seeds.size();
@@ -146,18 +160,18 @@ protected:
 class LatencySimulator
 {
 public:
-
-	virtual ~LatencySimulator() {
+	virtual ~LatencySimulator()
+	{
 		clear();
 	}
 
 	// lostrate: 往返一周丢包率的百分比，默认 10%
 	// rttmin：rtt最小值，默认 60
 	// rttmax：rtt最大值，默认 125
-	LatencySimulator(int lostrate = 10, int rttmin = 60, int rttmax = 125, int nmax = 1000): 
-		r12(100), r21(100) {
-		current = iclock();		
-		this->lostrate = lostrate / 2;	// 上面数据是往返丢包率，单程除以2
+	LatencySimulator(int lostrate = 10, int rttmin = 60, int rttmax = 125, int nmax = 1000) : r12(100), r21(100)
+	{
+		current = iclock();
+		this->lostrate = lostrate / 2; // 上面数据是往返丢包率，单程除以2
 		this->rttmin = rttmin / 2;
 		this->rttmax = rttmax / 2;
 		this->nmax = nmax;
@@ -165,12 +179,15 @@ public:
 	}
 
 	// 清除数据
-	void clear() {
+	void clear()
+	{
 		DelayTunnel::iterator it;
-		for (it = p12.begin(); it != p12.end(); it++) {
+		for (it = p12.begin(); it != p12.end(); it++)
+		{
 			delete *it;
 		}
-		for (it = p21.begin(); it != p21.end(); it++) {
+		for (it = p21.begin(); it != p21.end(); it++)
+		{
 			delete *it;
 		}
 		p12.clear();
@@ -179,45 +196,68 @@ public:
 
 	// 发送数据
 	// peer - 端点0/1，从0发送，从1接收；从1发送从0接收
-	void send(int peer, const void *data, int size) {
-		if (peer == 0) {
+	void send(int peer, const void *data, int size)
+	{
+		if (peer == 0)
+		{
 			tx1++;
-			if (r12.random() < lostrate) return;
-			if ((int)p12.size() >= nmax) return;
-		}	else {
+			if (r12.random() < lostrate)
+				return;
+			if ((int)p12.size() >= nmax)
+				return;
+		}
+		else
+		{
 			tx2++;
-			if (r21.random() < lostrate) return;
-			if ((int)p21.size() >= nmax) return;
+			if (r21.random() < lostrate)
+				return;
+			if ((int)p21.size() >= nmax)
+				return;
 		}
 		DelayPacket *pkt = new DelayPacket(size, data);
 		current = iclock();
 		IUINT32 delay = rttmin;
-		if (rttmax > rttmin) delay += rand() % (rttmax - rttmin);
+		if (rttmax > rttmin)
+			delay += rand() % (rttmax - rttmin);
 		pkt->setts(current + delay);
-		if (peer == 0) {
+		if (peer == 0)
+		{
 			p12.push_back(pkt);
-		}	else {
+		}
+		else
+		{
 			p21.push_back(pkt);
 		}
 	}
 
 	// 接收数据
-	int recv(int peer, void *data, int maxsize) {
+	int recv(int peer, void *data, int maxsize)
+	{
 		DelayTunnel::iterator it;
-		if (peer == 0) {
+		if (peer == 0)
+		{
 			it = p21.begin();
-			if (p21.size() == 0) return -1;
-		}	else {
+			if (p21.size() == 0)
+				return -1;
+		}
+		else
+		{
 			it = p12.begin();
-			if (p12.size() == 0) return -1;
+			if (p12.size() == 0)
+				return -1;
 		}
 		DelayPacket *pkt = *it;
 		current = iclock();
-		if (current < pkt->ts()) return -2;
-		if (maxsize < pkt->size()) return -3;
-		if (peer == 0) {
+		if (current < pkt->ts())
+			return -2;
+		if (maxsize < pkt->size())
+			return -3;
+		if (peer == 0)
+		{
 			p21.erase(it);
-		}	else {
+		}
+		else
+		{
 			p12.erase(it);
 		}
 		maxsize = pkt->size();
@@ -236,7 +276,7 @@ protected:
 	int rttmin;
 	int rttmax;
 	int nmax;
-	typedef std::list<DelayPacket*> DelayTunnel;
+	typedef std::list<DelayPacket *> DelayTunnel;
 	DelayTunnel p12;
 	DelayTunnel p21;
 	Random r12;
@@ -246,5 +286,3 @@ protected:
 #endif
 
 #endif
-
-
