@@ -272,7 +272,7 @@ typedef struct IQUEUEHEAD iqueue_head;
 #endif
 
 //=====================================================================
-// SEGMENT 一个 SETMENT 就是一个数据包
+// SEGMENT 即 KCP 报文段
 //=====================================================================
 struct IKCPSEG
 {
@@ -282,42 +282,42 @@ struct IKCPSEG
 	// 会话编号，同一个会话编号相同
 	IUINT32 conv;
 
-	// 数据包类型，譬如 DATA 或者 ACK
+	// 报文段类型，譬如 DATA 或者 ACK，一共有四种
 	IUINT32 cmd;
 
-	// 由于 MTU 的限制，大数据包会拆分成多个小数据包，这个是小数据包的编号
+	// 由于 MTU 的限制，大报文段会拆分成多个小报文段，这个是小报文段的编号
 	IUINT32 frg;
 
-	// 每个数据包，都会附带上发送方的接受窗口大小
+	// 每个报文段，都会附带上发送方的接受窗口大小
 	IUINT32 wnd;
 
-	// 发送时间，如果是 ACK 包，会设置为源数据包的 ts
+	// 发送时间，如果是 ACK 包，会设置为源报文段的 ts
 	IUINT32 ts;
 
-	// 唯一标识数据包的编号
-	// KCP 给每个数据包都分配一个 sn 号，接收端收到数据包后回给发送端的 ACK 数据包的 sn 号与之相同
+	// 唯一标识报文段的编号
+	// KCP 给每个报文段都分配一个 sn 号，接收端收到报文段后回给发送端的 ACK 报文段的 sn 号与之相同
 	IUINT32 sn;
 
-	// 代表小于 una 的数据包都接收成功，跟 TCP 含义一致：oldest unacknowledged sequence number SND
-	// 同时这个字段也表示期待下一个数据包的 sn 号
+	// 代表小于 una 的报文段都接收成功，跟 TCP 含义一致：oldest unacknowledged sequence number SND
+	// 同时这个字段也表示期待下一个报文段的 sn 号
 	IUINT32 una;
 
 	// 数据长度
 	IUINT32 len;
 
-	// 超时重传时间
+	// 重传时间戳. 超过这个时间表示该报文超时, 需要重传
 	IUINT32 resendts;
 
-	// 下次超时等待时间
+	// RTO, 下次超时等待时间
 	IUINT32 rto;
 
-	// 快速重传，收到本数据包之后的数据包的数量，大于一定数量就触发快速重传
+	// ACK 失序次数. 也就是 KCP Readme 中所说的 "跳过" 次数.
 	IUINT32 fastack;
 
 	// 发送次数
 	IUINT32 xmit;
 
-	// 数据
+	// 数据，只有数据报文会有这个字段
 	char data[1];
 };
 
@@ -327,13 +327,13 @@ struct IKCPSEG
 struct IKCPCB
 {
 	// conv: 会话编号
-	// mtu, mss: 最大传输单元，最大报文段大小
-	// state: 会话状态，0 有效，-1 断开
+	// mtu, mss: 最大传输单元，最大报文段大小，mss = mtu - 包头长度(24)
+	// state: 会话状态，0 有效，-1 断开(注意 state 是 unsigned int, -1 实际上是 0xffffffff)
 	IUINT32 conv, mtu, mss, state;
 
-	// snd_una: 等待 ACK 的包编号
-	// snd_nxt: 下一个等待发送的数据包编号
-	// rcv_nxt: 下一个等待接收的数据包编号
+	// snd_una: 发送缓冲区中最小还未确认送达的报文段的编号. 也就是说, 编号比它小的报文段都已确认送达.
+	// snd_nxt: 下一个等待发送的报文段编号
+	// rcv_nxt: 下一个等待接收的报文段编号
 	IUINT32 snd_una, snd_nxt, rcv_nxt;
 
 	// ts_recent, ts_lastack: 未用到
@@ -346,39 +346,40 @@ struct IKCPCB
 
 	// snd_wnd, rcv_wnd: 最大发送和接收窗口大小
 	// rmt_wnd: remote wnd ，对端剩余接受窗口大小
-	// cwnd: 可发送窗口大小
+	// cwnd: congestion window, 拥塞窗口. 用于拥塞控制.
 	// probe: 是否要发送控制报文的标志
 	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe;
 
 	// current: 当前时间
-	// interval: 更新间隔
-	// ts_flush: 下次需要更新的时间
-	// xmit: 发送失败次数
+	// interval: flush 的时间粒度
+	// ts_flush: 下次需要 flush 的时间
+	// xmit: 发送失败次数，即该链接超时重传的总次数.
 	IUINT32 current, interval, ts_flush, xmit;
 
 	// 对应链表的长度
+	// 接收缓冲区, 发送缓冲区, 接收队列, 发送队列的长度
 	IUINT32 nrcv_buf, nsnd_buf;
 	IUINT32 nrcv_que, nsnd_que;
 
-	// nodelay: 控制超时重传的 rto 增长速度
+	// nodelay: 是否启动快速模式. 用于控制 RTO 增长速度
 	// updated: 是否调用过 ikcp_update
 	IUINT32 nodelay, updated;
 
-	// ts_probe, probe_wait: 对端接收窗口长时间为 0 时主动定期发起询问
+	// ts_probe, probe_wait: 确定何时需要发送窗口询问报文, 对端接收窗口长时间为 0 时主动定期发起询问
 	IUINT32 ts_probe, probe_wait;
 
-	// deal_link: 对端长时间无应答
-	// incr: 参与计算发送窗口大小
+	// deal_link: 对端长时间无应答, 当一个报文发送超时次数达到 `dead_link` 次时认为连接断开
+	// incr: 参与计算发送窗口 cwnd 大小
 	IUINT32 dead_link, incr;
 
-	// queue: 跟用户层接触的数据包
-	// buf: 协议缓存的数据包
-	struct IQUEUEHEAD snd_queue;
-	struct IQUEUEHEAD rcv_queue;
-	struct IQUEUEHEAD snd_buf;
-	struct IQUEUEHEAD rcv_buf;
+	// queue: 跟用户层接触的报文段
+	// buf: 协议缓存的报文段
+	struct IQUEUEHEAD snd_queue; // 发送队列
+	struct IQUEUEHEAD rcv_queue; // 接受队列
+	struct IQUEUEHEAD snd_buf; // 发送缓冲区
+	struct IQUEUEHEAD rcv_buf; // 接收缓冲区
 
-	// 需要发送 ack 的数据包信息
+	// 需要发送 ack 的报文段信息
 	IUINT32 *acklist;
 
 	// 需要 ack 的包数量
@@ -390,20 +391,20 @@ struct IKCPCB
 	// 用户层传进来的数据
 	void *user;
 
-	// 存放一个 kcp 包的空间
+	// 存放一个 kcp 包的空间, flush 时用到的临时缓冲区
 	char *buffer;
 
-	// 触发快速重传的 fastack 次数
+	// ACK 失序 fastresend 次时触发快速重传
 	int fastresend;
 
-	// 快速重传最大次数
+	// 快速重传最大次数, 传输次数小于 fastlimit 的报文才会执行快速重传
 	int fastlimit;
 
-	// nocwnd: 不考虑慢启动的发送窗口大小
-	// stream: 流模式
+	// nocwnd: 是否不考虑拥塞窗口
+	// stream: 是否开启流模式, 开启后可能会合并包
 	int nocwnd, stream;
 
-	// debug log
+	// 用于控制日志
 	int logmask;
 
 	// 发送数据接口
@@ -413,6 +414,7 @@ struct IKCPCB
 	void (*writelog)(const char *log, struct IKCPCB *kcp, void *user);
 };
 
+// 一个 ikcpcb 实例代表一个 KCP 连接
 typedef struct IKCPCB ikcpcb;
 
 #define IKCP_LOG_OUTPUT 1
@@ -437,14 +439,17 @@ extern "C"
 	// interface
 	//---------------------------------------------------------------------
 
+	// 创建一个 KCP 实例
 	// create a new kcp control object, 'conv' must equal in two endpoint
 	// from the same connection. 'user' will be passed to the output callback
 	// output callback can be setup like this: 'kcp->output = my_udp_output'
 	ikcpcb *ikcp_create(IUINT32 conv, void *user);
 
+	// 释放一个 KCP 实例
 	// release kcp control object
 	void ikcp_release(ikcpcb *kcp);
 
+	// 设置下层协议输出回调函数
 	// set output callback, which will be invoked by kcp
 	void ikcp_setoutput(ikcpcb *kcp, int (*output)(const char *buf, int len,
 												   ikcpcb *kcp, void *user));
@@ -457,6 +462,7 @@ extern "C"
 	// user/upper level send, returns below zero for error
 	int ikcp_send(ikcpcb *kcp, const char *buffer, int len);
 
+	// 时钟更新
 	// update state (call it repeatedly, every 10ms-100ms), or you can ask
 	// ikcp_check when to call it again (without ikcp_input/_send calling).
 	// 'current' - current timestamp in millisec.
@@ -471,9 +477,11 @@ extern "C"
 	// or optimize ikcp_update when handling massive kcp connections)
 	IUINT32 ikcp_check(const ikcpcb *kcp, IUINT32 current);
 
+	// 下层协议输入
 	// when you received a low level packet (eg. UDP packet), call it
 	int ikcp_input(ikcpcb *kcp, const char *data, long size);
 
+	// flush 发送缓冲区, 会在 ikcp_update 中调用
 	// flush pending data
 	void ikcp_flush(ikcpcb *kcp);
 

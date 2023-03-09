@@ -35,8 +35,8 @@ void test(int mode)
 	// 创建模拟网络：丢包率10%，Rtt 60ms~125ms
 	vnet = new LatencySimulator(10, 60, 125);
 
-	// 创建两个端点的 kcp对象，第一个参数 conv是会话编号，同一个会话需要相同
-	// 最后一个是 user参数，用来传递标识
+	// 创建两个端点的 kcp 对象，第一个参数 conv 是会话编号，同一个会话需要相同
+	// 最后一个是 user 参数，用来传递标识
 	ikcpcb *kcp1 = ikcp_create(0x11223344, (void *)0);
 	ikcpcb *kcp2 = ikcp_create(0x11223344, (void *)1);
 
@@ -70,7 +70,7 @@ void test(int mode)
 		ikcp_nodelay(kcp1, 0, 10, 0, 1);
 		ikcp_nodelay(kcp2, 0, 10, 0, 1);
 	}
-	else
+	else if (mode == 2)
 	{
 		// 启动快速模式
 		// 第二个参数 nodelay-启用以后若干常规加速将启动

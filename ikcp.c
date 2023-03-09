@@ -238,6 +238,12 @@ void ikcp_qprint(const char *name, const struct IQUEUEHEAD *head)
 //---------------------------------------------------------------------
 // create a new kcpcb
 //---------------------------------------------------------------------
+/* 
+传入的 conv 参数标识这个 KCP 连接, 
+也就是说, 这个连接发出去的每个报文段都会带上 conv, 它也只会接收 conv 与之相等的报文段. 
+通信的双方必须先协商一对相同的 conv. 
+KCP 本身不提供任何握手机制, 协商 conv 交给使用者自行实现, 比如说通过已有的 TCP 连接协商.
+ */
 ikcpcb *ikcp_create(IUINT32 conv, void *user)
 {
 	ikcpcb *kcp = (ikcpcb *)ikcp_malloc(sizeof(struct IKCPCB));
@@ -372,7 +378,7 @@ void ikcp_setoutput(ikcpcb *kcp, int (*output)(const char *buf, int len,
 接收的过程是跟发送相反的：ikcp_input -> ikcp_update -> ikcp_recv，
 用户接收到网络上的数据之后，需要调用 ikcp_input 传给 KCP 解析，调用 ikcp_update 的时候会给发送端回复 ACK 包，上层通过调用 ikcp_recv 来接收 KCP 解析之后的数据。
 
-ikcp_recv 一次调用只会返回一个完整的数据包，上层可以循环调用直到没有数据返回为止，函数的逻辑比较简单，就是从 rcv_queue 中复制数据到上层传进来的 buffer 里面。
+ikcp_recv 一次调用只会返回一个完整的报文段，上层可以循环调用直到没有数据返回为止，函数的逻辑比较简单，就是从 rcv_queue 中复制数据到上层传进来的 buffer 里面。
  */
 int ikcp_recv(ikcpcb *kcp, char *buffer, int len)
 {
@@ -427,7 +433,7 @@ int ikcp_recv(ikcpcb *kcp, char *buffer, int len)
 			ikcp_log(kcp, IKCP_LOG_RECV, "recv sn=%lu", (unsigned long)seg->sn);
 		}
 
-		// 移除数据包
+		// 移除报文段
 		if (ispeek == 0)
 		{
 			iqueue_del(&seg->node);
@@ -777,7 +783,7 @@ static void ikcp_ack_get(const ikcpcb *kcp, int p, IUINT32 *sn, IUINT32 *ts)
 /* 
 ikcp_parse_data 主要的工作就是把 newseg 放置到 kcp->rcv_buf 合适的位置上，并把数据从 rcv_buf 移动到 rcv_queue。
 rcv_buf 合适的位置的意思是，rcv_buf 是按照 sn 的递增顺序排列的，newseg 需要根据自己的 sn 大小查找合适的位置。
-rcv_buf 上的数据要移动到 rcv_queue，条件是 rcv_buf 上的数据包序号，等于 KCP 在等待接收的包序号 kcp->rcv_nxt ，移动一个数据包之后，需要更新 kcp->rvc_nxt，再处理下一个数据包。
+rcv_buf 上的数据要移动到 rcv_queue，条件是 rcv_buf 上的报文段序号，等于 KCP 在等待接收的包序号 kcp->rcv_nxt ，移动一个报文段之后，需要更新 kcp->rvc_nxt，再处理下一个报文段。
  */
 void ikcp_parse_data(ikcpcb *kcp, IKCPSEG *newseg)
 {
@@ -860,9 +866,9 @@ void ikcp_parse_data(ikcpcb *kcp, IKCPSEG *newseg)
 // input data
 //---------------------------------------------------------------------
 /* 
-ikcp_input 循环处理每一个 SEG 包，先检查数据包的合法性和类型，因为每个数据包都会带上 una，存放的是发送端等待接收的包序号，
+ikcp_input 循环处理每一个 SEG 包，先检查报文段的合法性和类型，因为每个报文段都会带上 una，存放的是发送端等待接收的包序号，
 需要小于 una 的包对端都已经接受成功，所以可以把 snd_buff 中需要小于 una 的都删掉，并更新 snd_nxt，
-这一部分由 ikcp_parse_una 和 ikcp_shrink_buf 来处理。接收到的每个数据包，都需要回复 ACK 包，由 ikcp_ack_push 记录下来，最后调用 ikcp_parse_data 处理数据。
+这一部分由 ikcp_parse_una 和 ikcp_shrink_buf 来处理。接收到的每个报文段，都需要回复 ACK 包，由 ikcp_ack_push 记录下来，最后调用 ikcp_parse_data 处理数据。
  */
 int ikcp_input(ikcpcb *kcp, const char *data, long size)
 {
@@ -909,7 +915,7 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 		if ((long)size < (long)len || (int)len < 0)
 			return -2;
 
-		// 数据包类型检查
+		// 报文段类型检查
 		if (cmd != IKCP_CMD_PUSH
 			&& cmd != IKCP_CMD_ACK
 			&& cmd != IKCP_CMD_WASK
@@ -919,7 +925,7 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 
 		kcp->rmt_wnd = wnd;
 
-		// 这里的 una 是发送方的 kcp->rcv_nxt，根据这个数据，可以去掉已确认接收的数据包
+		// 这里的 una 是发送方的 kcp->rcv_nxt，根据这个数据，可以去掉已确认接收的报文段
 		ikcp_parse_una(kcp, una);
 
 		// 去掉已确认接收的包后，更新 snd_una 下一个要发送的序号
@@ -971,8 +977,8 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 		}
 		else if (cmd == IKCP_CMD_PUSH)
 		{
-			// 数据包
-            // 如果接收到的数据包序号 sn，在接收窗口内，则正常处理，否则直接丢弃，等重传
+			// 报文段
+            // 如果接收到的报文段序号 sn，在接收窗口内，则正常处理，否则直接丢弃，等重传
 			if (ikcp_canlog(kcp, IKCP_LOG_IN_DATA))
 			{
 				ikcp_log(kcp, IKCP_LOG_IN_DATA,
@@ -1106,8 +1112,8 @@ static int ikcp_wnd_unused(const ikcpcb *kcp)
 /* 
 对于发送：
 首先 KCP 会根据对端的接收窗口大小，把 snd_queue 上的数据移动到 snd_buf 上面，计算移动数量的公式是 num = snd_nxt - (snd_una + cwnd)，也就是：
-已发送成功的最大包序号 snd_una 加上滑动窗口大小 cwnd 如果大于下个待发送的包序号 snd_nxt，则可以继续再发送新的数据包。移动 SEG 的同时，设置控制字段。
-遍历 snd_buf，如果需要发送数据包，则把数据复制到 buffer 上，复制的同时用 ikcp_encode_seg 处理控制字段数据的大小端问题。
+已发送成功的最大包序号 snd_una 加上滑动窗口大小 cwnd 如果大于下个待发送的包序号 snd_nxt，则可以继续再发送新的报文段。移动 SEG 的同时，设置控制字段。
+遍历 snd_buf，如果需要发送报文段，则把数据复制到 buffer 上，复制的同时用 ikcp_encode_seg 处理控制字段数据的大小端问题。
 最后调用 ikcp_output 把 buffer 上的数据发送出去。
 
 对于接收：
@@ -1118,7 +1124,7 @@ ikcp_update 最终是调用 ikcp_flush。
 void ikcp_flush(ikcpcb *kcp)
 {
 	IUINT32 current = kcp->current;
-	char *buffer = kcp->buffer; // buffer 是要传给 ikcp_output 的数据，初始化为 3 倍数据包大小
+	char *buffer = kcp->buffer; // buffer 是要传给 ikcp_output 的数据，初始化为 3 倍报文段大小
 	char *ptr = buffer;
 	int count, size, i;
 	IUINT32 resent, cwnd;
@@ -1221,7 +1227,7 @@ void ikcp_flush(ikcpcb *kcp)
 		cwnd = _imin_(kcp->cwnd, cwnd);
 
 	// move data from snd_queue to snd_buf
-	// 把数据包从 snd_queue 移动到 snd_buf
+	// 把报文段从 snd_queue 移动到 snd_buf
 	// 移动是需要满足发送窗口大小的，发送窗口满了，就停止移动
 	// 放在 snd_buf 的里面的数据，就是可以直接调用 ikcp_output 给对端发送的数据
 	while (_itimediff(kcp->snd_nxt, kcp->snd_una + cwnd) < 0)
